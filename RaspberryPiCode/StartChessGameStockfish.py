@@ -12,13 +12,13 @@ import subprocess, time, serial
 maxchess = ChessBoard()
 
 if __name__ == '__main__':
-    ser = serial.Serial('/dev/ttyAMA0', 9600, timeout=1)   # for Pi Zero use '/dev/ttyAMA0' and for others use '/dev/ttyUSB0'.
+    ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)   # for Pi Zero use '/dev/ttyUSB0' and for others use '/dev/ttyUSB0'.
     ser.flush()
 
 # initiate stockfish chess engine
 
 engine = subprocess.Popen(
-    'stockfish',
+    '/usr/games/stockfish',
     universal_newlines=True,
     stdin=subprocess.PIPE,
     stdout=subprocess.PIPE
@@ -30,6 +30,7 @@ def get():
     # to indicate current last line of stdout
     stx=""
     engine.stdin.write('isready\n')
+    engine.stdin.flush()
     print('\nengine:')
     while True :
         text = engine.stdout.readline().strip()
@@ -46,6 +47,7 @@ def sget():
     # to indicate current last line of stdout
     stx=""
     engine.stdin.write('isready\n')
+    engine.stdin.flush()
     print('\nengine:')
     while True :
         text = engine.stdout.readline().strip()
@@ -188,6 +190,7 @@ def bmove(fmove):
 def put(command):
     print('\nyou:\n\t'+command)
     engine.stdin.write(command+'\n')
+    engine.stdin.flush()
     
 def sendToScreen(line1,line2,line3,size = '14'):
     """Send three lines of text to the small OLED screen"""

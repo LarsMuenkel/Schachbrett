@@ -1,118 +1,66 @@
-"""
-This code is based on examples kindly created, documented, and shared by Adafruit:
-
-This is for use on (Linux) computers that are using CPython with
-Adafruit Blinka to support CircuitPython libraries. CircuitPython does
-not support PIL/pillow (python imaging library)!
-"""
-
-import board
 import sys, getopt
-import digitalio
-from PIL import Image, ImageDraw, ImageFont
-import adafruit_ssd1306
+from luma.core.interface.serial import i2c
+from luma.core.render import canvas
+from luma.oled.device import ssd1306
+from PIL import ImageFont
 
-#print ('Number of arguments', len(sys.argv), 'arguments.')
-#print ('Arguments list:', str(sys.argv))
-
-#Grab the arguments
+# Argumente einlesen
 argv = sys.argv[1:]
-
 textLine1 = ''
 textLine2 = ''
 textLine3 = ''
-textSize = ''
+textSize = 14
 
-#work through those arguments
 try:
-  opts, args = getopt.getopt(argv,"ha:b:c:s:",["firstLine=","secondLine=","thirdLine=","textSize="])
+    opts, args = getopt.getopt(argv, "ha:b:c:s:", ["firstLine=", "secondLine=", "thirdLine=", "textSize="])
 except getopt.GetoptError:
-  print ('test.py -i <inputfile> -o <outputfile>')
-  sys.exit(2)
+    sys.exit(2)
+
 for opt, arg in opts:
-  if opt == '-h':
-     print ('printToOLED.py -a <firstline> -b <secondline> -c <thirdline> -s <textsize>')
-     sys.exit()
-  elif opt in ("-a", "--firstLine"):
-     textLine1 = arg
-  elif opt in ("-b", "--secondLine"):
-     textLine2 = arg
-  elif opt in ("-c", "--thirdLine"):
-     textLine3 = arg
-  elif opt in ("-s", "--textSize"):
-     textSize = int(arg)
-#print ('First line is ', textLine1)
-#print ('Second line is ', textLine2)
-#print ('Third line is ', textLine3)
-#print ('Text size is ', textSize)
+    if opt in ("-a", "--firstLine"): textLine1 = arg
+    elif opt in ("-b", "--secondLine"): textLine2 = arg
+    elif opt in ("-c", "--thirdLine"): textLine3 = arg
+    elif opt in ("-s", "--textSize"): textSize = int(arg)
 
+# Display initialisieren
+try:
+    serial = i2c(port=1, address=0x3C)
+    device = ssd1306(serial)
+    
+    # WICHTIG: Verhindern, dass das Display beim Beenden gelöscht wird!
+    # Wir überschreiben die Aufräum-Funktion mit einer leeren Funktion.
+    device.cleanup = lambda: None 
+    
+except:
+    sys.exit()
 
-# Define the Reset Pin
-oled_reset = None
+# Schriftart laden
+try:
+    font_path = "/home/pi/SmartChess/RaspberryPiCode/WorkSans-Medium.ttf"
+    font = ImageFont.truetype(font_path, textSize)
+except:
+    font = ImageFont.load_default()
 
-WIDTH = 128
-HEIGHT = 64  
-BORDER = 5
+# Hilfsfunktion für Textgröße (behebt die DeprecationWarning)
+def get_text_size(draw, text, font):
+    try:
+        # Neue Pillow Versionen
+        left, top, right, bottom = draw.textbbox((0, 0), text, font=font)
+        return right - left, bottom - top
+    except AttributeError:
+        # Alte Pillow Versionen (Fallback)
+        return draw.textsize(text, font=font)
 
-# Use for I2C.
-i2c = board.I2C()
-oled = adafruit_ssd1306.SSD1306_I2C(WIDTH, HEIGHT, i2c, addr=0x3C, reset=oled_reset)
-
-# Use for SPI
-# spi = board.SPI()
-# oled_cs = digitalio.DigitalInOut(board.D5)
-# oled_dc = digitalio.DigitalInOut(board.D6)
-# oled = adafruit_ssd1306.SSD1306_SPI(WIDTH, HEIGHT, spi, oled_dc, oled_reset, oled_cs)
-
-# Clear display.
-oled.fill(0)
-oled.show()
-
-# Create blank image for drawing.
-# Make sure to create image with mode '1' for 1-bit color.
-image = Image.new("1", (oled.width, oled.height))
-
-# Get drawing object to draw on image.
-draw = ImageDraw.Draw(image)
-
-# Load default font.
-#font = ImageFont.load_default()
-
-#load the Truetype font.
-font = ImageFont.truetype("/home/pi/SmartChess/RaspberryPiCode/WorkSans-Medium.ttf", textSize)
-
-# Draw Some Text
-#textLine1 = "Choose a mode"
-#textLine2 = "1 = Play computer"
-#textLine3 = "2 = Remote play"
-
-(font_width, font_height) = font.getsize(textLine1)
-draw.text(
-    (oled.width // 2 - font_width // 2, 0),
-    textLine1,
-    font=font,
-    fill=255,
-)
-
-
-(font_width, font_height) = font.getsize(textLine2)
-draw.text(
-    (oled.width // 2 - font_width // 2, 20),
-    textLine2,
-    font=font,
-    fill=255,
-)
-
-(font_width, font_height) = font.getsize(textLine3)
-draw.text(
-    (oled.width // 2 - font_width // 2, 40),
-    textLine3,
-    font=font,
-    fill=255,
-)
-
-# Display image
-oled.image(image)
-oled.show()
-
-
+# Auf das Display zeichnen
+with canvas(device) as draw:
+    # Zeile 1
+    w, h = get_text_size(draw, textLine1, font)
+    draw.text(((device.width - w) / 2, 0), textLine1, font=font, fill="white")
+    
+    # Zeile 2
+    w, h = get_text_size(draw, textLine2, font)
+    draw.text(((device.width - w) / 2, 20), textLine2, font=font, fill="white")
+    
+    # Zeile 3
+    w, h = get_text_size(draw, textLine3, font)
+    draw.text(((device.width - w) / 2, 40), textLine3, font=font, fill="white")
