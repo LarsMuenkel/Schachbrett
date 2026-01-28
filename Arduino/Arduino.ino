@@ -65,6 +65,8 @@ void updateInternalBoard(String move) {
 void waitForPhysicalMove(String move) {
     String from = move.substring(0, 2);
     String to = move.substring(2, 4);
+    from.toUpperCase(); // Normalize to match Board.h definitions (A1, B2...)
+    to.toUpperCase();
     
     Serial.println(">>> EXECUTE PC MOVE: " + from + " -> " + to + " <<<");
     
@@ -82,8 +84,26 @@ void waitForPhysicalMove(String move) {
             if (sq == from) {
                 fromDone = true;
                 Serial.println(" [OK] Source lifted: " + sq);
-            } else {
-                 Serial.println(" (Info) Piece lifted: " + sq + " (Capture?)");
+                comms.send("L" + sq, 'p'); 
+            } 
+            else if (sq == to) {
+                 Serial.println(" (Info) Capture lifted: " + sq);
+            }
+            else {
+                 // ERROR: Wrong piece lifted
+                 Serial.println("WRONG PIECE: " + sq + ". Expected " + from);
+                 comms.send(sq, 'w'); // w = Wrong Warning
+                 
+                 // Wait until user puts it back!
+                 while (!restartRequest) {
+                     String fix = board.getChange();
+                     if (fix == "+" + sq) {
+                         Serial.println("Wrong piece restored.");
+                         comms.send("fixed", 'w'); 
+                         break;
+                     }
+                     delay(10);
+                 }
             }
         }
         else if (change.startsWith("+")) {
@@ -91,6 +111,7 @@ void waitForPhysicalMove(String move) {
              if (sq == to) {
                  toDone = true;
                  Serial.println(" [OK] Dest placed: " + sq);
+                 comms.send("P" + sq, 'p'); // P = Placed Correctly
              } else {
                  Serial.println(" (Info) Piece placed: " + sq);
              }
@@ -102,6 +123,10 @@ void waitForPhysicalMove(String move) {
     // Small delay to ensure user hand is away / settle
     delay(500); 
     Serial.println("PC Move Physical Execution Complete.");
+    
+    // Notify Pi that physical move is done (so it can update display to "Your Go")
+    // 'x' = eXecuted
+    comms.send("done", 'x');
 }
 
 void setupGameSequence() {
@@ -165,6 +190,11 @@ String getHumanMove() {
             if (change.startsWith("-")) {
                 moveFrom = change.substring(1);
                 Serial.print("From (Lift): "); Serial.println(moveFrom);
+                
+                // LIVE UPDATE: Send "Lift" info to Pi
+                // Type 'i' for Info/Intermediate
+                comms.send(moveFrom, 'i');
+                
                 break;
             } 
             else if (change.startsWith("+")) {
