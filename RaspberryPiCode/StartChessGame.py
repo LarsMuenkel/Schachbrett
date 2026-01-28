@@ -7,7 +7,23 @@ maxchess = ChessBoard()
 
 if __name__ == '__main__':
     # FIX 1: USB Port hardcoded to ttyUSB0
-    ser = serial.Serial('/dev/ttyUSB0', 9600, timeout=1)
+    # FIX 1: Robust Port Discovery
+    ports_to_try = ['/dev/ttyACM0', '/dev/ttyUSB0', '/dev/ttyACM1', '/dev/ttyUSB1']
+    ser = None
+    for port in ports_to_try:
+        try:
+            print("Trying to connect to " + port + "...")
+            ser = serial.Serial(port, 9600, timeout=1)
+            print("Connected to " + port)
+            break
+        except serial.SerialException:
+            print("Failed to connect to " + port)
+            pass
+            
+    if ser is None:
+        print("CRITICAL ERROR: Could not find Arduino on standard ports.")
+        sys.exit(1)
+        
     ser.flush()
 
 # initiate stockfish chess engine
@@ -172,7 +188,46 @@ if gameplayMode == 'stockfish':
 
         print ("Waiting for level...")
         sendToScreen ('Choose computer','difficulty level:','(0 -> 8)')
-        skillFromArduino = getboard()[1:3].lower()
+        # --- PATCH START: QUADRANTEN AUSWAHL ---
+        skillFromArduino = ""
+        while True:
+            # Replaced blocking single-read with loop
+            # Check for Quadrant (Q:x) or Level (L:x)
+            
+            # Using getboard() inside loop. Note: getboard() prints "Waiting..." which might spam log
+            # But the Arduino should be sending data relatively soon/often during user interaction.
+            # Ideally we modify getboard() to be less chatty or check buffer.
+            # For now, we rely on standard getboard blocking behaviour.
+            # But wait: getboard() waits indefinitely or until data comes?
+            # getboard() uses: while True: if ser.in_waiting > 0... else time.sleep(0.1)
+            # So it blocks until a message comes. This is good.
+            
+            raw_msg = getboard()
+            
+            if raw_msg.startswith('Q:'):
+                try:
+                    idx = raw_msg.split(':')[1]
+                    import subprocess
+                    subprocess.Popen(["python3", "printQuadrants.py", "-s", idx])
+                except:
+                    pass
+            elif raw_msg.startswith('L:'):
+                try:
+                    idx = raw_msg.split(':')[1]
+                    import subprocess
+                    subprocess.Popen(["python3", "printToOLED.py", "-a", "Select Level", "-b", "Level " + idx, "-c", ""])
+                except:
+                    pass
+            else:
+                # Skill confirmed (e.g. 05)
+                # Filter out garbage
+                if len(raw_msg) > 0 and raw_msg[0].lower() not in ['q', 'l']:
+                     if len(raw_msg) >= 2:
+                        skillFromArduino = raw_msg[-2:]
+                     else:
+                        skillFromArduino = raw_msg
+                     break
+        # --- PATCH END ---
         
         print ("Waiting for move time...")
         sendToScreen ('Choose computer','move time:','(0 -> 8)')
