@@ -2,80 +2,177 @@
 #include "Board.h"
 #include "Input.h"
 #include "Comms.h"
+#include <Servo.h>
 
 // --- Global Objects ---
 Board board;
 InputController input;
 Comms comms;
 
+#include "Robot.h"
+#include "Calibration.h"
+
+RobotController robot; // Instance
+Calibrator calibrator; // Instance
+
 // --- Global State ---
 volatile bool restartRequest = false;
-
-// Internal Board Representation for logging
-// 0 = Empty, 1 = Piece
-int currentBoard[8][8];
+bool useRobot = true; // Default to Robot
+bool pendingStart = false;
 
 // --- ISR ---
 void restartISR() {
     restartRequest = true;
 }
 
+// --- Helper: Serial Command Parser ---
+void handleSerial() {
+    if (Serial.available() > 0) {
+        String data = Serial.readStringUntil('\n');
+        data.trim();
+        
+        // Handshake
+        if (data == "heyArduinoChooseMode") {
+             Serial.println(F("Arduino Ready.")); // Optional ack?
+             pendingStart = true;
+             return;
+        }
+        
+        // Robot Toggle
+        if (data.startsWith("robot ")) {
+             int val = data.substring(6).toInt();
+             useRobot = (val == 1);
+             Serial.print(F("Robot Mode: ")); Serial.println(useRobot ? "ON" : "OFF");
+        }
+        // Calibration Commands: "set <id> <angle>"
+        else if (data.startsWith("set ")) {
+            int firstSpace = data.indexOf(' ');
+            int secondSpace = data.indexOf(' ', firstSpace + 1);
+            
+            int id = data.substring(firstSpace + 1, secondSpace).toInt();
+            int angle = data.substring(secondSpace + 1).toInt();
+            
+            Serial.print(F("Manual Servo ")); Serial.print(id);
+            Serial.print(F(" -> ")); Serial.println(angle);
+            robot.setDirect(id, angle);
+        }
+        // Magnet: "magnet 1" / "magnet 0"
+        else if (data.startsWith("magnet ")) {
+             int val = data.substring(7).toInt();
+             if (val) robot.magnetOn();
+             else robot.magnetOff();
+             Serial.println(val ? F("Magnet ON") : F("Magnet OFF"));
+        }
+        // Execute Move: "exec E2 E4"
+        else if (data.startsWith("exec ")) {
+             String fS = data.substring(5,6);
+             String rS = data.substring(6,7);
+             String fD = data.substring(8,9); // "exec E2 E4" -> char 8 is E
+             String rD = data.substring(9,10);
+             
+             // Simplistic Check
+             if (data.length() >= 10) {
+                 int f1 = fS.charAt(0) - 'A';
+                 int r1 = rS.charAt(1) - '1'; // Wait, substring(6,7) is charAt(0) of that string
+                 r1 = rS.toInt() - 1; // "2" -> 1
+                 
+                 int f2 = fD.charAt(0) - 'A';
+                 int r2 = rD.toInt() - 1;
+                 
+                 Serial.print(F("Exec Move: ")); Serial.print(fS); Serial.print(rS);
+                 Serial.print(F(" -> ")); Serial.print(fD); Serial.println(rD);
+                 
+                 // Fix parsing carefully: E2 is 'E' at 0, '2' at 1 in sub?
+                 // data: "exec E2 E4"
+                 // 0123456789
+                 // char 5='E', 6='2', 7=' ', 8='E', 9='4'
+                 f1 = data.charAt(5) - 'A';
+                 r1 = data.charAt(6) - '1';
+                 f2 = data.charAt(8) - 'A';
+                 r2 = data.charAt(9) - '1';
+                 
+                 robot.executeMove(f1, r1, f2, r2);
+                 Serial.println(F("Done"));
+             }
+        }
+        // Save Calibration: "save A1 <b,s,e,w,g>" (Simulated for now, actually just prints)
+        else if (data.startsWith("cal ")) {
+             Serial.println(F("Use 'set <id> <angle>' to find values."));
+             Serial.println(F("Then update Robot.h manually with the found values."));
+             // Example: "set 1 45" (Base to 45)
+        }
+        // Test move: "move E2"
+        else if (data.startsWith("move ")) {
+             String sq = data.substring(5);
+             Serial.print(F("Test Move to ")); Serial.println(sq);
+             // Parse sq (A1..H8)
+             char fileChar = sq.charAt(0);
+             char rankChar = sq.charAt(1);
+             int file = fileChar - 'A';
+             int rank = rankChar - '1';
+             
+             if (file >= 0 && file <= 7 && rank >= 0 && rank <= 7) {
+                 RobotPose p = robot.getSquarePose(file, rank);
+                 robot.moveToPose(p, 10);
+                 Serial.println(F("Move Complete"));
+             } else {
+                 Serial.println(F("Invalid Square"));
+             }
+        }
+        else if (data == "calibrate") {
+             calibrator.runRoutine();
+        }
+    }
+}
+
 // --- Helper Functions ---
 
-void resetInternalBoard() {
-    // Rows 0-1 (White Pieces? Black?) - Original logic
-    // Rows 0-1 (Indices 0,1) -> Ranks 8,7 (Black)
-    // Rows 6-7 (Indices 6,7) -> Ranks 2,1 (White)
-    // Original setup: 0,1=1; 2-5=0; 6,7=1.
-    for(int i=0; i<8; i++) {
-        for(int j=0; j<8; j++) {
-            if(i < 2 || i > 5) currentBoard[i][j] = 1;
-            else currentBoard[i][j] = 0;
-        }
-    }
-}
+// --- Helper Functions ---
 
-void printBoard() {
-    for(int i = 0; i < 8; i++) {
-        for(int j = 0; j < 8; j++) {
-            Serial.print(currentBoard[i][j]);
-            Serial.print(",");
-        }
-        Serial.println();
-    }
-}
-
-void updateInternalBoard(String move) {
-    // Move format: "e2e4"
-    if (move.length() < 4) return;
-
-    int colFrom = move[0] - 'a';
-    int rowFrom = 7 - (move[1] - '1'); // '1'->7, '8'->0
+void executeRobotMove(String move) {
+    String from = move.substring(0, 2);
+    String to = move.substring(2, 4);
+    from.toUpperCase(); 
+    to.toUpperCase();
     
-    int colTo = move[2] - 'a';
-    int rowTo = 7 - (move[3] - '1');
-
-    if (colFrom >= 0 && colFrom < 8 && rowFrom >= 0 && rowFrom < 8)
-        currentBoard[rowFrom][colFrom] = 0;
-        
-    if (colTo >= 0 && colTo < 8 && rowTo >= 0 && rowTo < 8)
-        currentBoard[rowTo][colTo] = 1;
+    Serial.print(F(">>> ROBOT EXECUTE: "));
+    Serial.print(from);
+    Serial.print(F(" -> "));
+    Serial.println(to);
+    
+    int f1 = from.charAt(0) - 'A';
+    int r1 = from.charAt(1) - '1';
+    int f2 = to.charAt(0) - 'A';
+    int r2 = to.charAt(1) - '1';
+    
+    // Check Capture
+    bool isCapture = false;
+    if (board.isOccupied(f2, r2)) {
+        isCapture = true;
+        Serial.print(F("Capture detected at ")); Serial.println(to);
+    }
+    
+    // Delegate to Robot Class
+    robot.performGameMove(f1, r1, f2, r2, isCapture);
+    
+    // Inform Pi (Robot logic handles physical move & delay)
+    comms.send("done", 'x');
 }
 
 void waitForPhysicalMove(String move) {
     String from = move.substring(0, 2);
     String to = move.substring(2, 4);
-    from.toUpperCase(); // Normalize to match Board.h definitions (A1, B2...)
+    from.toUpperCase(); 
     to.toUpperCase();
     
-    Serial.println(">>> EXECUTE PC MOVE: " + from + " -> " + to + " <<<");
+    Serial.print(F(">>> EXECUTE PC MOVE: "));
+    Serial.print(from);
+    Serial.print(F(" -> "));
+    Serial.println(to);
     
     bool fromDone = false;
     bool toDone = false;
 
-    // Special handling: If 'from' square starts empty? (Should not happen if synced)
-    // We strictly wait for Lift(from) and Place(to).
-    
     while (!restartRequest && (!fromDone || !toDone)) {
         String change = board.getChange();
         
@@ -83,22 +180,19 @@ void waitForPhysicalMove(String move) {
             String sq = change.substring(1);
             if (sq == from) {
                 fromDone = true;
-                Serial.println(" [OK] Source lifted: " + sq);
+                Serial.print(F(" [OK] Source lifted: ")); Serial.println(sq);
                 comms.send("L" + sq, 'p'); 
             } 
             else if (sq == to) {
-                 Serial.println(" (Info) Capture lifted: " + sq);
+                 Serial.print(F(" (Info) Capture lifted: ")); Serial.println(sq);
             }
             else {
-                 // ERROR: Wrong piece lifted
-                 Serial.println("WRONG PIECE: " + sq + ". Expected " + from);
-                 comms.send(sq, 'w'); // w = Wrong Warning
-                 
-                 // Wait until user puts it back!
+                 Serial.print(F("WRONG PIECE: ")); Serial.println(sq); 
+                 comms.send(sq, 'w'); 
+                 // Wait restoral
                  while (!restartRequest) {
                      String fix = board.getChange();
                      if (fix == "+" + sq) {
-                         Serial.println("Wrong piece restored.");
                          comms.send("fixed", 'w'); 
                          break;
                      }
@@ -110,22 +204,15 @@ void waitForPhysicalMove(String move) {
              String sq = change.substring(1);
              if (sq == to) {
                  toDone = true;
-                 Serial.println(" [OK] Dest placed: " + sq);
-                 comms.send("P" + sq, 'p'); // P = Placed Correctly
-             } else {
-                 Serial.println(" (Info) Piece placed: " + sq);
+                 Serial.print(F(" [OK] Dest placed: ")); Serial.println(sq);
+                 comms.send("P" + sq, 'p'); 
              }
         }
-        
         delay(10);
     }
     
-    // Small delay to ensure user hand is away / settle
     delay(500); 
-    Serial.println("PC Move Physical Execution Complete.");
-    
-    // Notify Pi that physical move is done (so it can update display to "Your Go")
-    // 'x' = eXecuted
+    Serial.println(F("PC Move Physical Execution Complete."));
     comms.send("done", 'x');
 }
 
@@ -135,14 +222,13 @@ void setupGameSequence() {
 
     // --- Step 1: Select Quadrant (Category) ---
     // 1=Easy, 2=Medium, 3=Hard, 4=Extreme
-    Serial.println("Select Category (1:Easy, 2:Med, 3:Hard, 4:Extr)");
+    Serial.println(F("Select Category (1:Easy, 2:Med, 3:Hard, 4:Extr)"));
     int category = input.selectOption(1, 4, 'Q');
     input.waitForRelease();
 
     // --- Step 2: Select Sub-Level ---
-    // --- Step 2: Select Sub-Level ---
     // 1 to 5 (Total 20 levels: 4 categories * 5 levels)
-    Serial.println("Select Level (1-5)");
+    Serial.println(F("Select Level (1-5)"));
     int subLevel = input.selectOption(1, 5, 'L');
     input.waitForRelease();
 
@@ -157,9 +243,9 @@ void setupGameSequence() {
     // Constant Move Time (1000ms)
     long moveTime = 1000;
 
-    Serial.print("Selected Index: "); Serial.println(totalIndex);
-    Serial.print("Skill: "); Serial.println(stockfishSkill);
-    Serial.print("Time: "); Serial.println(moveTime);
+    Serial.print(F("Selected Index: ")); Serial.println(totalIndex);
+    Serial.print(F("Skill: ")); Serial.println(stockfishSkill);
+    Serial.print(F("Time: ")); Serial.println(moveTime);
 
     // --- Send to Pi ---
     // 1. Send Difficulty
@@ -189,7 +275,7 @@ String getHumanMove() {
             String change = board.getChange();
             if (change.startsWith("-")) {
                 moveFrom = change.substring(1);
-                Serial.print("From (Lift): "); Serial.println(moveFrom);
+                Serial.print(F("From (Lift): ")); Serial.println(moveFrom);
                 
                 // LIVE UPDATE: Send "Lift" info to Pi
                 // Type 'i' for Info/Intermediate
@@ -210,11 +296,11 @@ String getHumanMove() {
             String change = board.getChange();
             if (change.startsWith("+")) {
                 moveTo = change.substring(1);
-                Serial.print("To (Place): "); Serial.println(moveTo);
+                Serial.print(F("To (Place): ")); Serial.println(moveTo);
                 break;
             }
             else if (change.startsWith("-")) {
-                Serial.println("Ignored Lift during move (Capture removal?)");
+                Serial.println(F("Ignored Lift during move (Capture removal?)"));
             }
             delay(10);
         }
@@ -223,7 +309,7 @@ String getHumanMove() {
 
         // Check validity
         if (moveFrom == moveTo) {
-            Serial.println("Ignored move (placed back on same square). Please move again.");
+            Serial.println(F("Ignored move (placed back on same square). Please move again."));
         } else {
             return moveFrom + moveTo;
         }
@@ -243,56 +329,62 @@ void setup() {
     // Interrupt
     attachInterrupt(digitalPinToInterrupt(PIN_BTN_RESTART), restartISR, FALLING);
 
-    // Init Logic
-    resetInternalBoard();
+    // --- Robot Initialization ---
+    // Startet in Parkposition und fährt dann in Gameposition
+    // PIN DEFINITIONS from Globals.h
+    robot.begin(PIN_ROBO_BASE, PIN_ROBO_SHOULDER, PIN_ROBO_ELBOW, PIN_ROBO_WRIST, PIN_ROBO_GRIPPER);
+    
+    delay(1000); 
+    robot.wakeUp();
 }
 
+
+// --- Loop ---
 void loop() {
-    // Always check restart at top of loop
+    // Always check for debug commands
+    handleSerial();
+
+    // Check restart
     if (restartRequest) {
-        Serial.println("Starting a new game....");
+        Serial.println(F("Starting a new game...."));
         comms.send("", 'n');
-        resetInternalBoard();
         restartRequest = false;
-        // Proceed to setup
+        robot.wakeUp(); // Reset to game pos
     }
 
-    // 1. Wait for Pi to be ready
-    // Note: Original code calls waitForPiToStart() only once in setup().
-    // But then loop() runs continuously.
-    // If restart happens, we might need to re-handshake?
-    // Original restart() just resets board and sends 'n'. It does NOT call waitForPiToStart again.
-    // So we assume Pi handles 'n' and is ready.
-    // However, on startup we MUST wait.
-    static bool firstRun = true;
-    if (firstRun) {
-        comms.waitForPiStart();
-        if(restartRequest) return; // loop again to handle restart
-        setupGameSequence();
-        firstRun = false;
+    // 1. Wait for Pi to be ready (Non-blocking Loop)
+    static bool gameStarted = false;
+    if (!gameStarted) {
+        if (pendingStart) {
+            gameStarted = true;
+            pendingStart = false; 
+            setupGameSequence();
+        } else {
+             // While waiting, we can handle calibration commands!
+             // handleSerial is already called at top of loop.
+             delay(50); 
+             return; // Loop again
+        }
     }
 
     // 2. Human Turn
     String humanMove = getHumanMove();
     if (restartRequest) return; 
-
+    
+    // We send move to Pi. Pi validates it.
     comms.send(humanMove, 'M');
-    printBoard();
 
     // 3. Check Legality (Pi validation)
     bool legal = comms.checkPiForError();
     if (restartRequest) return;
 
     if (!legal) {
-        Serial.println("Move discarded, please return the pieces and try another move");
-        printBoard();
+        Serial.println(F("Move discarded, please return the pieces and try another move"));
         // Loop restart (Human tries again)
         return;
     }
 
-    Serial.println("Move is legal");
-    updateInternalBoard(humanMove);
-    printBoard();
+    Serial.println(F("Move is legal"));
 
     // 4. Pi Turn
     String piMoveFull = comms.receiveMove();
@@ -305,12 +397,13 @@ void loop() {
     String suggested = "";
     if (piMoveFull.length() > 5) suggested = piMoveFull.substring(5);
 
-    Serial.println("Suggested next move = " + suggested);
+    Serial.print(F("Suggested next move = ")); Serial.println(suggested);
     Serial.println(piMoveFull);
 
     // WAIT FOR USER TO EXECUTE PC MOVE ON BOARD
-    waitForPhysicalMove(piMove);
-    
-    updateInternalBoard(piMoveFull); 
-    printBoard();
+    if (useRobot) {
+        executeRobotMove(piMove);
+    } else {
+        waitForPhysicalMove(piMove);
+    }
 }

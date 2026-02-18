@@ -13,8 +13,9 @@ const uint8_t PIN_SHIFT_DATA_1 = 2; // First chain (Rows A-D)
 const uint8_t PIN_SHIFT_DATA_2 = 7; // Second chain (Rows E-H)
 
 // Button Pins
+// Button Pins
 const uint8_t PIN_BTN_RESTART = 11; // Interrupt Pin
-const uint8_t PIN_BTN_INPUT = 10;   // Increment
+const uint8_t PIN_BTN_INPUT = A3;   // Increment (Moved from 10 to A3 for Servo)
 const uint8_t PIN_BTN_OK = A2;      // Confirm (Moved from 13 to avoid LED conflict)
 const uint8_t PIN_BTN_DEL = 12;     // Decrement
 
@@ -24,6 +25,7 @@ const uint8_t PIN_ROBO_BASE = 3;
 const uint8_t PIN_ROBO_SHOULDER = 5;
 const uint8_t PIN_ROBO_ELBOW = 6;
 const uint8_t PIN_ROBO_WRIST = 9;
+const uint8_t PIN_ROBO_GRIPPER = 10; // New Gripper Servo
 
 // --- Constants ---
 const unsigned long DEBOUNCE_MS = 50; // Standard debounce

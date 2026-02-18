@@ -18,21 +18,31 @@ public:
         Serial.println(message);
     }
 
-    void waitForPiStart() {
-        Serial.println("Function:waitForPiToStart...");
-        while (!restartRequest) {
-            if (Serial.available() > 0) {
-                String data = Serial.readStringUntil('\n');
-                Serial.println(data); // Echo for debug
-                if (data.startsWith("heyArduinoChooseMode")) {
-                    // Send strictly "Stockfish"
-                    send("Stockfish", 'G');
-                    Serial.println("Pi is going to start a game with Stockfish.");
-                    delay(500); // Give Pi time to process state change
-                    break;
-                }
+    // Check for Start Command (Non-blocking check)
+    bool checkPiStart() {
+        if (Serial.available() > 0) {
+            String data = Serial.peek() != -1 ? Serial.readStringUntil('\n') : ""; 
+            // Note: readStringUntil helps, but peeking might be cleaner to avoid consuming other commands? 
+            // Actually, if we consume "set...", we fail. 
+            // Let's rely on main loop to pass data here? Or simpler:
+            // Just return TRUE if we see the start command, else consume nothing if possible?
+            // BUT: Serial buffer is stream. 
+            
+            // Allow Main Loop to read line, and pass it here?
+            // Refactoring: "processInput(String data)"
+            
+            if (data.startsWith("heyArduinoChooseMode")) {
+                Serial.println(data);
+                send("Stockfish", 'G');
+                Serial.println("Pi is going to start a game with Stockfish.");
+                delay(500); 
+                return true;
             }
+            // If it's NOT a start command, is it a CAL command? 
+            // We can't put back data.
+            // Problem: If I read it here, handleSerial won't see it.
         }
+        return false;
     }
 
     // Returns false if error received, true if OK.

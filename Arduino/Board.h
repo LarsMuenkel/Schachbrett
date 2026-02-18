@@ -136,6 +136,27 @@ public:
         return ""; // Should not reach here if diff exists
     }
     
+    // Check if a specific square (File 0-7, Rank 0-7) is occupied
+    // Based on last known state (lastRead1/2)
+    bool isOccupied(int file, int rank) {
+        if (file < 0 || file > 7 || rank < 0 || rank > 7) return false;
+
+        // Chain 1: Files A-D (0-3)
+        // D(3)=0-7, C(2)=8-15, B(1)=16-23, A(0)=24-31
+        if (file <= 3) {
+            int blockStart = (3 - file) * 8;
+            int bitIdx = blockStart + rank;
+            return (lastRead1 >> bitIdx) & 1;
+        } 
+        // Chain 2: Files E-H (4-7)
+        // H(7)=0-7, G(6)=8-15, F(5)=16-23, E(4)=24-31
+        else {
+            int blockStart = (7 - file) * 8;
+            int bitIdx = blockStart + rank;
+            return (lastRead2 >> bitIdx) & 1;
+        }
+    }
+    
     // Debug print
     void printState() {
         // Not implemented to save space, unless needed
