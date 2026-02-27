@@ -24,86 +24,88 @@ struct RobotPose {
 // Copy this into a header file or Robot.h
 const RobotPose CALIBRATED_SQUARES[8][8] PROGMEM = {
   { // File A
-    {66, 135, 50, 71, 0},  // A1
-    {61, 111, 87, 56, 0}, // A2
-    {57, 99, 81, 94, 0},  // A3
-    {53, 97, 73, 117, 0}, // A4
-    {45, 83, 84, 122, 0}, // A5
-    {39, 71, 89, 134, 0}, // A6
-    {31, 66, 88, 147, 0}, // A7
-    {17, 61, 88, 153, 0}  // A8
+    {65, 134, 50, 71, 0},  // A1
+    {61, 112, 84, 59, 0}, // A2
+    {57, 99, 85, 86, 0},  // A3
+    {52, 96, 73, 117, 0}, // A4
+    {48, 82, 85, 122, 0}, // A5
+    {41, 71, 89, 134, 0}, // A6
+    {32, 65, 89, 145, 0}, // A7
+    {17, 62, 88, 153, 0}  // A8
   },
   { // File B
-    {69, 127, 58, 78, 0}, // B1
-    {69, 115, 63, 94, 0}, // B2
-    {65, 102, 68, 115, 0},  // B3
-    {60, 92, 73, 126, 0}, // B4
-    {54, 74, 86, 133, 0}, // B5
-    {49, 65, 89, 144, 0}, // B6
-    {39, 49, 96, 152, 0}, // B7
+    {73, 128, 57, 76, 0}, // B1
+    {68, 114, 64, 94, 0}, // B2
+    {64, 103, 68, 113, 0},  // B3
+    {60, 92, 73, 127, 0}, // B4
+    {57, 75, 86, 132, 0}, // B5
+    {50, 66, 89, 144, 0}, // B6
+    {40, 50, 98, 151, 0}, // B7
     {24, 21, 116, 153, 0} // B8
   },
   { // File C
-    {79, 124, 53, 90, 0}, // C1
-    {77, 103, 79, 88, 0}, // C2
+    {80, 125, 54, 87, 0}, // C1
+    {75, 104, 79, 86, 0}, // C2
     {73, 84, 95, 94, 0},  // C3
-    {69, 71, 97, 113, 0}, // C4
-    {67, 63, 95, 132, 0}, // C5
-    {62, 46, 103, 144, 0},  // C6
-    {54, 42, 97, 160, 0}, // C7
-    {40, 40, 91, 176, 0}  // C8
+    {69, 72, 97, 113, 0}, // C4
+    {68, 63, 97, 132, 0}, // C5
+    {62, 48, 103, 143, 0},  // C6
+    {54, 44, 98, 162, 0}, // C7
+    {38, 42, 92, 175, 0}  // C8
   },
   { // File D
-    {87, 128, 50, 93, 0}, // D1
+    {87, 128, 50, 94, 0}, // D1
     {82, 99, 87, 81, 0},  // D2
-    {84, 91, 82, 110, 0}, // D3
-    {82, 77, 86, 126, 0}, // D4
-    {81, 66, 90, 141, 0}, // D5
-    {75, 57, 89, 157, 0}, // D6
-    {70, 40, 94, 168, 0}, // D7
-    {59, 22, 98, 180, 0}  // D8
+    {84, 90, 82, 109, 0}, // D3
+    {82, 78, 86, 126, 0}, // D4
+    {80, 67, 90, 141, 0}, // D5
+    {77, 57, 90, 156, 0}, // D6
+    {71, 42, 96, 167, 0}, // D7
+    {59, 24, 99, 179, 0}  // D8
   },
   { // File E
-    {95, 125, 50, 94, 0}, // E1
+    {96, 125, 50, 93, 0}, // E1
     {94, 97, 89, 80, 0},  // E2
-    {94, 89, 81, 113, 0}, // E3
-    {95, 80, 80, 133, 0}, // E4
-    {94, 65, 88, 144, 0}, // E5
-    {95, 51, 94, 155, 0}, // E6
-    {96, 39, 94, 170, 0}, // E7
-    {96, 21, 99, 180, 0}  // E8
+    {94, 89, 82, 113, 0}, // E3
+    {95, 81, 80, 132, 0}, // E4
+    {94, 67, 88, 143, 0}, // E5
+    {95, 51, 95, 155, 0}, // E6
+    {96, 43, 94, 170, 0}, // E7
+    {97, 20, 100, 180, 0} // E8
   },
   { // File F
-    {103, 125, 50, 90, 0},  // F1
-    {103, 110, 63, 107, 0}, // F2
-    {106, 87, 83, 108, 0},  // F3
-    {107, 79, 83, 127, 0},  // F4
-    {110, 72, 82, 145, 0},  // F5
-    {112, 52, 94, 153, 0},  // F6
-    {119, 42, 94, 167, 0},  // F7
-    {130, 39, 89, 180, 0} // F8
+    {104, 127, 50, 90, 0},  // F1
+    {103, 112, 61, 107, 0}, // F2
+    {107, 88, 83, 108, 0},  // F3
+    {108, 79, 83, 127, 0},  // F4
+    {108, 73, 83, 143, 0},  // F5
+    {112, 53, 95, 151, 0},  // F6
+    {119, 45, 94, 166, 0},  // F7
+    {130, 38, 91, 179, 0} // F8
   },
   { // File G
-    {109, 120, 67, 67, 0},  // G1
-    {111, 103, 78, 86, 0},  // G2
-    {115, 93, 81, 104, 0},  // G3
-    {117, 85, 77, 128, 0},  // G4
-    {121, 70, 88, 136, 0},  // G5
-    {127, 56, 94, 146, 0},  // G6
-    {135, 50, 92, 160, 0},  // G7
-    {147, 42, 94, 171, 0} // G8
+    {112, 124, 65, 67, 0},  // G1
+    {112, 107, 75, 87, 0},  // G2
+    {116, 93, 81, 104, 0},  // G3
+    {118, 86, 77, 127, 0},  // G4
+    {120, 70, 89, 135, 0},  // G5
+    {127, 58, 95, 144, 0},  // G6
+    {134, 52, 93, 158, 0},  // G7
+    {146, 40, 96, 168, 0} // G8
   },
   { // File H
-    {116, 130, 55, 75, 0},  // H1
-    {119, 108, 79, 76, 0},  // H2
-    {123, 96, 82, 97, 0}, // H3
-    {126, 87, 82, 117, 0},  // H4
-    {131, 67, 97, 120, 0},  // H5
-    {137, 50, 107, 129, 0}, // H6
-    {146, 49, 101, 143, 0}, // H7
-    {158, 59, 86, 163, 0} // H8
+    {116, 131, 53, 75, 0},  // H1
+    {121, 111, 74, 76, 0},  // H2
+    {123, 98, 80, 97, 0}, // H3
+    {127, 88, 80, 115, 0},  // H4
+    {129, 70, 97, 118, 0},  // H5
+    {136, 52, 108, 125, 0}, // H6
+    {145, 50, 101, 143, 0}, // H7
+    {158, 60, 86, 161, 0} // H8
   }
 };
+
+
 
 // --- GRAVEYARD POSITIONS (Captured Pieces) ---
 const RobotPose GRAVEYARD_POSITIONS[14] PROGMEM = {
@@ -209,11 +211,13 @@ public:
         maxDist = max(maxDist, abs(target.base - curBase));
         maxDist = max(maxDist, abs(target.shoulder - curShoulder));
         maxDist = max(maxDist, abs(target.elbow - curElbow));
+        maxDist = max(maxDist, abs(target.wrist - curWrist));
         
         if (maxDist == 0) return;
 
-        int steps = maxDist * 2; 
-        if (steps < 20) steps = 20;
+        // Use more steps for smoother "slow motion" interpolation
+        int steps = maxDist * 3; 
+        if (steps < 30) steps = 30;
 
         for (int i = 0; i <= steps; i++) {
             float t = (float)i / (float)steps;
@@ -227,7 +231,9 @@ public:
             shoulder.write(s);
             elbow.write(e);
             wrist.write(w);
-            delay(15); 
+            
+            // Use the speed/delay parameter provided
+            delay(speed); 
         }
     }
     
@@ -347,11 +353,8 @@ public:
 
     // --- HIGH LEVEL ACTIONS ---
     
-    // --- HIGH LEVEL ACTIONS ---
-    
     // Core Primitive: Go Up -> Down -> Magnet On -> Up
-    // Core Primitive: Go Up -> Down -> Magnet On -> Up
-    void performPickup(RobotPose pDown) {
+    void performPickup(RobotPose pDown, int speed = 50) {
         RobotPose pUp = pDown;
         // Lift slightly (Shoulder -15, Elbow -10 seems okay as heuristic for "Up")
         pUp.shoulder -= 15; 
@@ -361,16 +364,16 @@ public:
         RobotPose pGrab = pDown;
         pGrab.shoulder -= 1;
         
-        moveToPose(pUp, 80);    // Approach Hover (Slower)
-        moveToPose(pGrab, 200); // Touch (Extremely Slow Descent)
-        delay(5000);            // Pause 5s before Grip
+        moveToPose(pUp, speed);   // Approach Hover
+        moveToPose(pGrab, speed); // Touch
+        delay(5000);              // Pause 5s before Grip
         magnetOn();
-        delay(1000);            // Pause 1s after Magnet On
-        moveToPose(pUp, 80);    // Lift (Slower)
+        delay(1000);              // Pause 1s after Magnet On
+        moveToPose(pUp, speed);   // Lift
     }
 
     // Core Primitive: Go Up -> Down -> Wait -> Magnet Off -> Up
-    void performPlace(RobotPose pDown, int delayMs) {
+    void performPlace(RobotPose pDown, int delayMs, int speed = 50) {
         RobotPose pUp = pDown;
         pUp.shoulder -= 15;
         pUp.elbow -= 10;
@@ -383,19 +386,19 @@ public:
         RobotPose pNudge = pPlace;
         pNudge.shoulder -= 2; // Up another 2 degrees
 
-        moveToPose(pUp, 80);      // Approach Hover (Slower)
-        moveToPose(pPlace, 200);  // Lower Extremely Slowly
+        moveToPose(pUp, speed);     // Approach Hover
+        moveToPose(pPlace, speed);  // Lower
         
         // "One step up, one step down" maneuver
         delay(500);
-        moveToPose(pNudge, 200);  // Slowly Up
+        moveToPose(pNudge, speed);  // Slowly Up
         delay(500);
-        moveToPose(pPlace, 200);  // Slowly Down again
+        moveToPose(pPlace, speed);  // Slowly Down again
         
         if (delayMs > 0) delay(delayMs);
         magnetOff();
-        delay(400);               // Release
-        moveToPose(pUp, 80);      // Lift (Slower)
+        delay(400);                 // Release
+        moveToPose(pUp, speed);     // Lift
     }
     
     // Convenience for Board Squares

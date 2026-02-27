@@ -85,49 +85,50 @@ public:
     }
 
     void runRoutine() {
-        Serial.println(F("ENTERING PICK-AND-PLACE CALIBRATION (Rows 5-8 -> 1-4)."));
+        Serial.println(F("ENTERING PICK-AND-PLACE CALIBRATION (Rows 1-4 -> 5-8)."));
         printControls();
 
-        // Start with File A (0), Rank 8 (7) -> Target Rank 4 (3)
+        // Start with File A (0), Rank 1 (0) -> Target Rank 5 (4)
         int fileIdx = 0;
-        int rankIdx = 7; 
+        int rankIdx = 0; 
         
-        bool isPickPhase = true; // true=Adjusting Source (Pick), false=Adjusting Dest (Place)
+        // State:
+        // 0 = At Source (Empty Handed). Expecting Calibration -> Pick.
+        // 1 = At Dest (Holding Piece). Expecting Calibration -> Place -> Pick -> Return.
+        // 2 = At Source (Holding Piece). Expecting Calibration -> Place -> Pick -> Return.
+        int state = 0;
 
         while (true) {
             
-            RobotPose currentPose;
-            int currentRank = isPickPhase ? rankIdx : (rankIdx - 4);
-            
-            // Graveyard check? 
+            // Graveyard check
             if (fileIdx > 7) {
-                // Done with board
                 Serial.println(F("Board Complete. Saving..."));
                 dumpData();
                 return;
             }
             if (fileIdx < 0) { fileIdx = 0; }
 
+            // Determine Target Square based on State
+            int currentRank;
+            if (state == 0 || state == 2) currentRank = rankIdx;     // Source (0-3)
+            else currentRank = rankIdx + 4;                          // Dest (4-7)
+
             char fileChar = 'A' + fileIdx;
             int rankNum = currentRank + 1;
 
-            Serial.print(F("\n>>> Calibrating "));
-            Serial.print(isPickPhase ? F("PICK (Source): ") : F("PLACE (Dest): "));
-            Serial.print(fileChar);
-            Serial.println(rankNum);
-
-            // 1. Load Pose
-            currentPose = toRobotPose(calibratedPositions[fileIdx][currentRank]);
+            Serial.print(F("\n>>> Calibrating [State ")); Serial.print(state); Serial.print(F("]: "));
+            Serial.print(fileChar); Serial.println(rankNum);
             
-            // 2. Move Robot (Hover then Touch)
-            // We use a simplified move here so user doesn't wait 5s every adjustment time
-            // But for the FIRST move to position, we should be gentle.
+            // 1. Load Pose
+            RobotPose currentPose = toRobotPose(calibratedPositions[fileIdx][currentRank]);
+            
+            // 2. Move Robot (Approach & Touch)
             RobotPose pUp = currentPose;
             pUp.shoulder -= 15; pUp.elbow -= 10;
-            robot.moveToPose(pUp, 50);
-            robot.moveToPose(currentPose, 100);
+            robot.moveToPose(pUp, 100);        
+            robot.moveToPose(currentPose, 100); 
 
-            // 3. User adjustment loop
+            // 3. Adjustment Loop
             bool stepDone = false;
             while (!stepDone) {
                 if (Serial.available() > 0) {
@@ -135,8 +136,6 @@ public:
                     input.trim();
                     if (input.length() == 0) continue;
 
-                    // --- CMD PARSING ---
-                    bool validCmd = false;
                     bool changed = false;
                     String lowerInput = input;
                     lowerInput.toLowerCase();
@@ -146,46 +145,57 @@ public:
                         dumpData();
                         return;
                     }
-                    else if (lowerInput == "ok") {
+                    else if (lowerInput == "go") {
                         // SAVE
                         calibratedPositions[fileIdx][currentRank] = fromRobotPose(currentPose);
-                        Serial.println(F("Position Saved."));
+                        Serial.println(F("Position Saved. Executing cycle..."));
                         
-                        if (isPickPhase) {
-                            // EXECUTE PICKUP (Simulation)
-                            // We are at 'currentPose' (Down). 
-                            // Go Up, Magnet On, Up?
-                            // User wants to simulate the grab.
-                            Serial.println(F("Grabbing..."));
-                            robot.magnetOn();
-                            delay(500);
-                            robot.moveToPose(pUp, 50); // Lift
-                            
-                            // Switch to Place Phase
-                            isPickPhase = false;
-                        } else {
-                            // EXECUTE PLACE (Simulation)
-                            Serial.println(F("Placing..."));
-                            robot.magnetOff();
-                            delay(500);
-                            robot.moveToPose(pUp, 50); // Lift
-                            
-                            // Done with this pair. Move to next.
-                            // Decrement Rank (7->6->5->4)
-                            rankIdx--; 
-                            if (rankIdx < 4) {
-                                // Done with this file
-                                rankIdx = 7; 
-                                fileIdx++;
-                                Serial.println(F("File Done. Moving to Next File."));
-                            }
-                            isPickPhase = true; // Back to Pick
+                        if (state == 0) {
+                            // State 0: Pick Source -> Move Dest
+                            Serial.println(F("Picking Source..."));
+                            robot.performPickup(currentPose, 100);
+                            state = 1; // Now at Dest
+                        }
+                        else if (state == 1) {
+                            // State 1: Place Dest -> Pick Dest -> Move Source
+                            Serial.println(F("Place/Pick Dest..."));
+                            robot.performPlace(currentPose, 1000, 100);
+                            robot.performPickup(currentPose, 100);
+                            state = 2; // Now at Source
+                        }
+                        else if (state == 2) {
+                            // State 2: Place Source -> Pick Source -> Move Dest
+                            Serial.println(F("Place/Pick Source..."));
+                            robot.performPlace(currentPose, 1000, 100);
+                            robot.performPickup(currentPose, 100);
+                            state = 1; // Now at Dest
                         }
                         stepDone = true; 
                     }
+                    else if (lowerInput == "ok") {
+                        // SAVE & FINISH PAIR
+                        calibratedPositions[fileIdx][currentRank] = fromRobotPose(currentPose);
+                        Serial.println(F("Saved. Finishing pair..."));
+                        
+                        // If holding piece, place it!
+                        if (state == 1 || state == 2) {
+                            Serial.println(F("Placing piece before moving on..."));
+                            robot.performPlace(currentPose, 1000, 100);
+                        }
+                        
+                        // Advance to next pair (0->1->2->3)
+                        rankIdx++; 
+                        if (rankIdx > 3) {
+                            rankIdx = 0; 
+                            fileIdx++;
+                            Serial.println(F("File Done. Moving to Next File."));
+                        }
+                        state = 0; // Reset for next pair
+                        stepDone = true;
+                    }
                     else if (input == "dump") { dumpData(); }
                     else {
-                        // Adjustments q/a/w/s...
+                         // Adjustments q/a/w/s...
                         int step = 1; 
                         for (unsigned int i = 0; i < input.length(); i++) {
                             char c = input.charAt(i);
@@ -209,7 +219,8 @@ public:
                         currentPose.wrist = constrain(currentPose.wrist, 0, 180);
                         
                         // Direct update (Stay down)
-                        robot.forcePose(currentPose);
+                        // Use slow move for adjustments too as requested ("immer")
+                        robot.moveToPose(currentPose, 100); 
                         printPose(currentPose);
                     }
                 }
