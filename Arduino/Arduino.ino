@@ -317,6 +317,28 @@ String getHumanMove() {
     return "";
 }
 
+// Blocks until the physical board state matches the target bits
+void waitForBoardRestoral(uint32_t target1, uint32_t target2) {
+    Serial.println(F("BLOCKING: Waiting for physical board restoral..."));
+    long lastMsg = 0;
+    while (!restartRequest) {
+        // Continuous read to update bits
+        board.getChange();
+        
+        if (board.getState1() == target1 && board.getState2() == target2) {
+            Serial.println(F("Board state matches original state. Correction complete."));
+            break;
+        }
+        
+        // Periodic message
+        if (millis() - lastMsg > 3000) {
+            Serial.println(F("Waiting: Please move the piece back to its original square..."));
+            lastMsg = millis();
+        }
+        delay(50);
+    }
+}
+
 void setup() {
     // Init Hardware
     board.begin();
@@ -368,6 +390,17 @@ void loop() {
     }
 
     // 2. Human Turn
+    // Ensure any previously pending sensor changes (like from a robot move) are swallowed
+    // and wait for a brief moment of silence (no changes) to define our "before" state.
+    unsigned long silenceStart = millis();
+    while (millis() - silenceStart < 300 && !restartRequest) {
+        if (board.getChange() != "") silenceStart = millis(); 
+        delay(10);
+    }
+
+    uint32_t before1 = board.getState1();
+    uint32_t before2 = board.getState2();
+
     String humanMove = getHumanMove();
     if (restartRequest) return; 
     
@@ -379,8 +412,8 @@ void loop() {
     if (restartRequest) return;
 
     if (!legal) {
-        Serial.println(F("Move discarded, please return the pieces and try another move"));
-        // Loop restart (Human tries again)
+        Serial.println(F("Move discarded. Please return pieces, it was illegal."));
+        waitForBoardRestoral(before1, before2);
         return;
     }
 

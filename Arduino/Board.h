@@ -157,6 +157,9 @@ public:
         }
     }
     
+    uint32_t getState1() { return lastRead1; }
+    uint32_t getState2() { return lastRead2; }
+
     // Debug print
     void printState() {
         // Not implemented to save space, unless needed
