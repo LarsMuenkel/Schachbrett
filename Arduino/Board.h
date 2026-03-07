@@ -160,9 +160,41 @@ public:
     uint32_t getState1() { return lastRead1; }
     uint32_t getState2() { return lastRead2; }
 
+    // Force re-read of board state (after robot move, to prevent ghost detections)
+    void resync() {
+        lastRead1 = readChain(PIN_SHIFT_DATA_1);
+        lastRead2 = readChain(PIN_SHIFT_DATA_2);
+    }
+
     // Debug print
     void printState() {
-        // Not implemented to save space, unless needed
+        // Force a fresh read for debugging
+        uint32_t val1 = readChain(PIN_SHIFT_DATA_1);
+        uint32_t val2 = readChain(PIN_SHIFT_DATA_2);
+        
+        Serial.println(F("\n=== BOARD SHIFT REGISTER STATE ==="));
+        Serial.print(F("Chain 1 (A-D): ")); Serial.println(val1, BIN);
+        Serial.print(F("Chain 2 (E-H): ")); Serial.println(val2, BIN);
+        Serial.println(F("=================================="));
+        
+        // Print as 8x8 grid for easy visual check (File A-H, Rank 1-8)
+        for(int rank = 7; rank >= 0; rank--) { // Print Rank 8 at top
+            Serial.print(rank + 1); Serial.print("  ");
+            for(int file = 0; file < 8; file++) {
+                bool occupied = false;
+                if (file <= 3) {
+                    int blockStart = (3 - file) * 8;
+                    occupied = (val1 >> (blockStart + rank)) & 1;
+                } else {
+                    int blockStart = (7 - file) * 8;
+                    occupied = (val2 >> (blockStart + rank)) & 1;
+                }
+                Serial.print(occupied ? "1 " : "0 ");
+            }
+            Serial.println();
+        }
+        Serial.println("   A B C D E F G H");
+        Serial.println(F("==================================\n"));
     }
 };
 

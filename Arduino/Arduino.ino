@@ -31,9 +31,19 @@ void handleSerial() {
         String data = Serial.readStringUntil('\n');
         data.trim();
         
-        // Handshake
+        if (data == "debug") {
+            board.printState();
+            return;
+        }
+
+        // Handshake Phase 1: Pi asks for mode, we respond
         if (data == "heyArduinoChooseMode") {
-             Serial.println(F("Arduino Ready.")); // Optional ack?
+             comms.send("Stockfish", 'G');  // Tell Pi we're playing Stockfish
+             return;  // Wait for ReadyStockfish before starting setup
+        }
+        
+        // Handshake Phase 2: Pi is ready, start game setup
+        if (data == "heyArduinoReadyStockfish") {
              pendingStart = true;
              return;
         }
@@ -119,6 +129,71 @@ void handleSerial() {
                  Serial.println(F("Invalid Square"));
              }
         }
+        // --- calibratePos park / game ---
+        else if (data.startsWith("calibratePos ")) {
+             String posName = data.substring(13);
+             posName.trim();
+             
+             RobotPose* targetPos = nullptr;
+             if (posName == "park") {
+                  targetPos = &robot.parkPos;
+                  Serial.println(F("Calibrating PARK position..."));
+             } else if (posName == "game") {
+                  targetPos = &robot.gamePos;
+                  Serial.println(F("Calibrating GAME position..."));
+             } else {
+                  Serial.println(F("Unknown position. Use: calibratePos park / calibratePos game"));
+             }
+             
+             if (targetPos != nullptr) {
+                  robot.moveToPose(*targetPos, 20);
+                  Serial.println(F("q/a=Base, w/s=Shoulder, e/d=Elbow, r/f=Wrist (+/- 1)"));
+                  Serial.println(F("Type 'ok' to save."));
+                  
+                  RobotPose current = *targetPos;
+                  while (true) {
+                       if (Serial.available() > 0) {
+                            String inp = Serial.readStringUntil('\n');
+                            inp.trim();
+                            if (inp == "ok") {
+                                 *targetPos = current;
+                                 Serial.println(F("Position saved!"));
+                                 Serial.print(F("{"));
+                                 Serial.print(current.base); Serial.print(F(", "));
+                                 Serial.print(current.shoulder); Serial.print(F(", "));
+                                 Serial.print(current.elbow); Serial.print(F(", "));
+                                 Serial.print(current.wrist); Serial.println(F(", 0}"));
+                                 break;
+                            }
+                            bool changed = false;
+                            for (unsigned int i = 0; i < inp.length(); i++) {
+                                 switch (inp.charAt(i)) {
+                                      case 'q': current.base++; changed=true; break;
+                                      case 'a': current.base--; changed=true; break;
+                                      case 'w': current.shoulder++; changed=true; break;
+                                      case 's': current.shoulder--; changed=true; break;
+                                      case 'e': current.elbow++; changed=true; break;
+                                      case 'd': current.elbow--; changed=true; break;
+                                      case 'r': current.wrist++; changed=true; break;
+                                      case 'f': current.wrist--; changed=true; break;
+                                 }
+                            }
+                            if (changed) {
+                                 current.base = constrain(current.base, 0, 180);
+                                 current.shoulder = constrain(current.shoulder, 0, 180);
+                                 current.elbow = constrain(current.elbow, 0, 180);
+                                 current.wrist = constrain(current.wrist, 0, 180);
+                                 robot.moveToPose(current, 50);
+                                 Serial.print(F("[B:")); Serial.print(current.base);
+                                 Serial.print(F(" S:")); Serial.print(current.shoulder);
+                                 Serial.print(F(" E:")); Serial.print(current.elbow);
+                                 Serial.print(F(" W:")); Serial.print(current.wrist);
+                                 Serial.println(F("]"));
+                            }
+                       }
+                  }
+             }
+        }
         else if (data == "calibrate") {
              calibrator.runRoutine();
         }
@@ -152,10 +227,31 @@ void executeRobotMove(String move) {
         Serial.print(F("Capture detected at ")); Serial.println(to);
     }
     
-    // Delegate to Robot Class
-    robot.performGameMove(f1, r1, f2, r2, isCapture);
+    // Execute with progress updates to Pi
+    // 1. Handle Capture
+    if (isCapture) {
+        robot.performPickup(robot.getSquarePose(f2, r2));
+        if (robot.graveyardNextFree < 14) {
+            RobotPose pGrave = robot.getGraveyardPose(robot.graveyardNextFree);
+            robot.performPlace(pGrave, 0);
+            robot.graveyardNextFree++;
+        } else {
+            robot.dropPiece();
+        }
+    }
     
-    // Inform Pi (Robot logic handles physical move & delay)
+    // 2. Pickup source piece
+    robot.performPickup(robot.getSquarePose(f1, r1));
+    comms.send("L" + from, 'p');  // Tell Pi: lifted from source
+    
+    // 3. Place at destination
+    robot.performPlace(robot.getSquarePose(f2, r2), 5000);
+    comms.send("P" + to, 'p');  // Tell Pi: placed at destination
+    
+    // 4. Back to game position
+    robot.returnToGame();
+    
+    // 5. Done
     comms.send("done", 'x');
 }
 
@@ -197,6 +293,7 @@ void waitForPhysicalMove(String move) {
                          break;
                      }
                      delay(10);
+                     pollRestart();
                  }
             }
         }
@@ -209,6 +306,7 @@ void waitForPhysicalMove(String move) {
              }
         }
         delay(10);
+        pollRestart();
     }
     
     delay(500); 
@@ -216,9 +314,80 @@ void waitForPhysicalMove(String move) {
     comms.send("done", 'x');
 }
 
+// --- Setup Board Verification ---
+void checkStartBoard() {
+    bool allCorrect = false;
+    while (!allCorrect && !restartRequest) {
+        board.resync(); // update board state
+        allCorrect = true;
+        String firstError = "";
+        
+        // Check Ranks 1 to 8, Files A to H
+        for (int rank = 0; rank < 8; rank++) {
+            for (int file = 0; file < 8; file++) {
+                // Ranks 1,2 (rank 0,1) and 7,8 (rank 6,7) must be occupied
+                bool expected = (rank <= 1 || rank >= 6); 
+                
+                if (board.isOccupied(file, rank) != expected) {
+                    allCorrect = false;
+                    char fChar = 'A' + file;
+                    char rChar = '1' + rank;
+                    
+                    if (firstError == "") {
+                        firstError = String(fChar) + String(rChar);
+                        firstError += expected ? " fehlt" : " zu viel";
+                    }
+                }
+            }
+        }
+        
+        if (!allCorrect) {
+            Serial.print(F("Board setup error: ")); Serial.println(firstError);
+            String msg = "Brett falsch!:Bitte fixen:>> " + firstError;
+            comms.send(msg, 'D');
+            
+            // Wait for user to change something on the board or press restart
+            String change = "";
+            while (change == "" && !restartRequest) {
+                change = board.getChange();
+                pollRestart();
+                delay(10);
+            }
+            delay(500); // Let pieces settle after change before re-checking
+        }
+    }
+    
+    if (allCorrect && !restartRequest) {
+        Serial.println(F("Board start positions OK."));
+        comms.send("Brett OK!:Starte Spiel...:", 'D');
+        delay(1000);
+    }
+}
+
 void setupGameSequence() {
     // Ensure button is not "stuck" from boot
     input.waitForRelease();
+
+    // --- Step 0a: Robot On/Off ---
+    Serial.println(F("Robot Mode: 1=An, 2=Aus"));
+    int robotChoice = input.selectOption(1, 2, 'R');
+    input.waitForRelease();
+    useRobot = (robotChoice == 1);
+    Serial.println(useRobot ? F("Robot: AN") : F("Robot: AUS"));
+
+    // --- Step 0b: Select Color (White / Black) ---
+    Serial.println(F("Select Color: 1=White, 2=Black"));
+    int colorChoice = input.selectOption(1, 2, 'F');
+    input.waitForRelease();
+    
+    // Send color to Pi (with colon separator for Pi handler)
+    if (colorChoice == 1) {
+        Serial.println(F("heypiC:w"));
+        Serial.println(F("Playing as WHITE"));
+    } else {
+        Serial.println(F("heypiC:b"));
+        Serial.println(F("Playing as BLACK"));
+    }
 
     // --- Step 1: Select Quadrant (Category) ---
     // 1=Easy, 2=Medium, 3=Hard, 4=Extreme
@@ -262,6 +431,9 @@ void setupGameSequence() {
 
     // 2. Send Timeout
     comms.send(String(moveTime), '-');
+    
+    // 3. Verify physical board setup before starting
+    checkStartBoard();
 }
 
 // Retrieves human move by polling board
@@ -287,12 +459,24 @@ String getHumanMove() {
                // Ignore unintentional placing or artifacts
             }
             delay(10);
+            pollRestart();
         }
         
         if (restartRequest) return "";
 
         // Wait for TO square (MUST BE A PLACE '+')
+        // DEL button = clear moveFrom and start over
+        bool cleared = false;
         while (!restartRequest) {
+            // Check DEL button to clear move
+            if (digitalRead(PIN_BTN_DEL) == LOW) {
+                delay(200);
+                Serial.println(F("Move cleared! Waiting for new move..."));
+                comms.send("Move Reset:Warte auf:neuen Zug", 'D');
+                cleared = true;
+                break;
+            }
+            
             String change = board.getChange();
             if (change.startsWith("+")) {
                 moveTo = change.substring(1);
@@ -303,7 +487,10 @@ String getHumanMove() {
                 Serial.println(F("Ignored Lift during move (Capture removal?)"));
             }
             delay(10);
+            pollRestart();
         }
+        
+        if (cleared) continue;  // Restart from FROM detection
 
         if (restartRequest) return "";
 
@@ -336,6 +523,7 @@ void waitForBoardRestoral(uint32_t target1, uint32_t target2) {
             lastMsg = millis();
         }
         delay(50);
+        pollRestart();
     }
 }
 
@@ -361,24 +549,59 @@ void setup() {
 }
 
 
+// --- Poll Restart Button (Pin 11 has no HW interrupt on Uno) ---
+void pollRestart() {
+    if (digitalRead(PIN_BTN_RESTART) == LOW) {
+        delay(50);
+        if (digitalRead(PIN_BTN_RESTART) == LOW) {
+            restartRequest = true;
+        }
+    }
+}
+
 // --- Loop ---
 void loop() {
     // Always check for debug commands
     handleSerial();
 
+    static bool gameStarted = false;
+    static bool isFirstTurn = true;
+
+    // Poll restart button
+    pollRestart();
+
     // Check restart
     if (restartRequest) {
-        Serial.println(F("Starting a new game...."));
-        comms.send("", 'n');
         restartRequest = false;
-        robot.wakeUp(); // Reset to game pos
+        
+        // Ask for confirmation
+        Serial.println(F("Neues Spiel? 1=Ja, 2=Nein"));
+        comms.send("Neues Spiel?:OK = Ja:Zurueck = Nein", 'D');  // Display on Pi
+        
+        // Use selectOption (same buttons as game setup)
+        input.waitForRelease();
+        int choice = input.selectOption(1, 2, 0);  // 1=Ja, 2=Nein
+        input.waitForRelease();
+        bool confirmed = (choice == 1);
+        
+        if (confirmed) {
+            Serial.println(F("Restarting game..."));
+            robot.magnetOff();
+            robot.park();
+            comms.send("", 'n');  // Tell Pi: new game
+            gameStarted = false;  // Reset so setupGameSequence runs again
+            pendingStart = false;
+            robot.graveyardNextFree = 0;
+        } else {
+            Serial.println(F("Restart cancelled."));
+        }
     }
 
     // 1. Wait for Pi to be ready (Non-blocking Loop)
-    static bool gameStarted = false;
     if (!gameStarted) {
         if (pendingStart) {
             gameStarted = true;
+            isFirstTurn = true;
             pendingStart = false; 
             setupGameSequence();
         } else {
@@ -391,11 +614,33 @@ void loop() {
 
     // 2. Human Turn
     // Ensure any previously pending sensor changes (like from a robot move) are swallowed
-    // and wait for a brief moment of silence (no changes) to define our "before" state.
-    unsigned long silenceStart = millis();
-    while (millis() - silenceStart < 300 && !restartRequest) {
-        if (board.getChange() != "") silenceStart = millis(); 
-        delay(10);
+    if (!isFirstTurn) {
+        delay(500); // Let magnets/sensors settle
+        board.resync(); // Snapshot current physical state
+        unsigned long silenceStart = millis();
+        // 1000ms silence for robot moves
+        while (millis() - silenceStart < 1000 && !restartRequest) {
+            if (board.getChange() != "") silenceStart = millis(); 
+            delay(10);
+            pollRestart();
+        }
+    } else {
+        // For the first turn, we still need a brief silence period!
+        // Pushing the OK button shakes the board. If we take the snapshot exactly
+        // right as the button is released, the shaking magnets cause corrupt readings.
+        // That's why the middle files (like E2) weren't working properly!
+        delay(300); // Let board stop vibrating from OK button
+        board.resync();
+        unsigned long silenceStart = millis();
+        // 400ms is perfectly enough to guarantee the board is physically still
+        while (millis() - silenceStart < 400 && !restartRequest) {
+            if (board.getChange() != "") silenceStart = millis(); 
+            delay(10);
+            pollRestart();
+        }
+        Serial.println(F("\n>>> INIT BOARD STATE:"));
+        board.printState();
+        isFirstTurn = false;
     }
 
     uint32_t before1 = board.getState1();
@@ -436,6 +681,9 @@ void loop() {
     // WAIT FOR USER TO EXECUTE PC MOVE ON BOARD
     if (useRobot) {
         executeRobotMove(piMove);
+        // Resync board state after robot physically moved pieces
+        delay(500);
+        board.resync();
     } else {
         waitForPhysicalMove(piMove);
     }

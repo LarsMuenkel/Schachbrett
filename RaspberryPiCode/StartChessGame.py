@@ -237,15 +237,50 @@ while True:
 if gameplayMode == 'stockfish':
     while True:
         sendtoboard("ReadyStockfish")
+        
+        # Show initial robot selection screen
+        sendToScreen('>> Roboter An <<', 'Roboter Aus', '', '16')
 
-        print ("Waiting for level...")
+        print ("Waiting for color & level...")
         
         skillFromArduino = ""
+        playerColor = "w"  # Default white
         while True:
             raw_msg = getboard()
             raw_msg = raw_msg.lower()
             
-            if raw_msg.startswith('q:'):
+            # Robot On/Off display update
+            if raw_msg.startswith('r:'):
+                try:
+                    idx = raw_msg.split(':')[1]
+                    if idx == '1':
+                        sendToScreen('>> Roboter An <<', 'Roboter Aus', '', '16')
+                    else:
+                        sendToScreen('Roboter An', '>> Roboter Aus <<', '', '16')
+                except:
+                    pass
+            # Color selection display update
+            elif raw_msg.startswith('f:'):
+                try:
+                    idx = raw_msg.split(':')[1]
+                    if idx == '1':
+                        sendToScreen('>> Weiss <<', 'Schwarz', '', '18')
+                    else:
+                        sendToScreen('Weiss', '>> Schwarz <<', '', '18')
+                except:
+                    pass
+            # Color confirmed
+            elif raw_msg.startswith('c:'):
+                try:
+                    playerColor = raw_msg.split(':')[1]
+                    if playerColor == 'w':
+                        sendToScreen('Weiss', 'gewaehlt!', '', '20')
+                    else:
+                        sendToScreen('Schwarz', 'gewaehlt!', '', '20')
+                    time.sleep(1)
+                except:
+                    pass
+            elif raw_msg.startswith('q:'):
                 try:
                     idx = raw_msg.split(':')[1]
                     import subprocess
@@ -260,8 +295,10 @@ if gameplayMode == 'stockfish':
                 except:
                     pass
             else:
-                 if 'q:' not in raw_msg and 'l:' not in raw_msg:
-                     if len(raw_msg) >= 1:
+                 # Skip delayed mode responses and non-setup messages
+                 if raw_msg.startswith('g') or 'q:' in raw_msg or 'l:' in raw_msg:
+                      pass
+                 elif len(raw_msg) >= 1:
                         if raw_msg.startswith('-'):
                              skillFromArduino = raw_msg[1:]
                         else:
@@ -298,11 +335,22 @@ if gameplayMode == 'stockfish':
                 # We can print "E2 -> ..."
                 sendToScreen(sq.upper() + " -> " + "...", "", "", "20")
                 continue 
+            
+            # Display message from Arduino (e.g. restart confirmation)
+            if code == 'd':
+                parts = bmessage[1:].split(':')
+                line1 = parts[0] if len(parts) > 0 else ''
+                line2 = parts[1] if len(parts) > 1 else ''
+                line3 = parts[2] if len(parts) > 2 else ''
+                sendToScreen(line1, line2, line3, '18')
+                continue
 
             if code == 'm':
                 fmove = bmove(fmove)
             elif code == 'n':
-                fmove = newgame()
+                # Full restart - break to outer loop for new setup
+                sendToScreen('NEW', 'GAME', '', '30')
+                break
             else :
                 # Ignore unknown or error
                 pass
