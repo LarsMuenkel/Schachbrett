@@ -77,63 +77,50 @@ public:
         // 1. Fast exit if no change from last known state
         if (live1 == lastRead1 && live2 == lastRead2) return "";
 
-        // 2. Stability Check: The NEW state must remain exactly consistent for 300ms
-        // If it flickers back to old state or changes to a 3rd state, we reject it as noise.
-        unsigned long start = millis();
-        while (millis() - start < 300) {
-            uint32_t check1 = readChain(PIN_SHIFT_DATA_1);
-            uint32_t check2 = readChain(PIN_SHIFT_DATA_2);
-            if (check1 != live1 || check2 != live2) {
-                // Signal is unstable (glitching / sliding transition)
-                return ""; 
-            }
-            delay(10);
-        }
-
-        // 3. Accepted State 'live' is stable. Find diff vs 'lastRead'.
+        // 2. Debounce: Wait 200ms to allow physical bounce to settle
+        // This isolates noise so one wobbly piece doesn't paralyze the whole board.
+        delay(200);
+        
+        uint32_t final1 = readChain(PIN_SHIFT_DATA_1);
+        uint32_t final2 = readChain(PIN_SHIFT_DATA_2);
         String changedSq = "";
 
-        // Check Chain 1
-        if (live1 != lastRead1) {
+        // 3. Process Chain 1
+        if (final1 != lastRead1) {
             for(int i = 0; i < 32; i++) {
-                // Check Bit Difference
-                if ( ((live1 >> i) & 1) != ((lastRead1 >> i) & 1) ) {
-                    changedSq = SQUARES_1[i];
-                    
-                    bool isPlace = ((live1 >> i) & 1); // 1 = Place, 0 = Lift
+                if ( ((final1 >> i) & 1) != ((lastRead1 >> i) & 1) ) {
+                    // Verify the bit was also in this new state at the start of debounce
+                    if ( ((live1 >> i) & 1) == ((final1 >> i) & 1) ) {
+                        changedSq = SQUARES_1[i];
+                        bool isPlace = ((final1 >> i) & 1); // 1 = Place, 0 = Lift
 
-                    // PARTIAL UPDATE
-                    if (isPlace) {
-                        lastRead1 |= (1UL << i);
-                        return "+" + changedSq;
-                    } else {
-                        lastRead1 &= ~(1UL << i);
-                        return "-" + changedSq;
+                        if (isPlace) lastRead1 |= (1UL << i);
+                        else         lastRead1 &= ~(1UL << i);
+                        
+                        return (isPlace ? "+" : "-") + changedSq;
                     }
                 }
             }
         }
 
-        // Check Chain 2
-        if (live2 != lastRead2) {
+        // 4. Process Chain 2
+        if (final2 != lastRead2) {
             for(int i = 0; i < 32; i++) {
-                if ( ((live2 >> i) & 1) != ((lastRead2 >> i) & 1) ) {
-                    changedSq = SQUARES_2[i];
-                    
-                    bool isPlace = ((live2 >> i) & 1);
+                if ( ((final2 >> i) & 1) != ((lastRead2 >> i) & 1) ) {
+                    if ( ((live2 >> i) & 1) == ((final2 >> i) & 1) ) {
+                        changedSq = SQUARES_2[i];
+                        bool isPlace = ((final2 >> i) & 1);
 
-                    if (isPlace) {
-                        lastRead2 |= (1UL << i);
-                        return "+" + changedSq;
-                    } else {
-                        lastRead2 &= ~(1UL << i);
-                        return "-" + changedSq;
+                        if (isPlace) lastRead2 |= (1UL << i);
+                        else         lastRead2 &= ~(1UL << i);
+                        
+                        return (isPlace ? "+" : "-") + changedSq;
                     }
                 }
             }
         }
 
-        return ""; // Should not reach here if diff exists
+        return ""; // Should not reach here if a valid diff exists
     }
     
     // Check if a specific square (File 0-7, Rank 0-7) is occupied

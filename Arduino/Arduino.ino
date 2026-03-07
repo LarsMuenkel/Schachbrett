@@ -19,6 +19,7 @@ Calibrator calibrator; // Instance
 volatile bool restartRequest = false;
 bool useRobot = true; // Default to Robot
 bool pendingStart = false;
+bool isFirstTurn = true; // Added missing global flag
 
 // --- ISR ---
 void restartISR() {
@@ -314,56 +315,6 @@ void waitForPhysicalMove(String move) {
     comms.send("done", 'x');
 }
 
-// --- Setup Board Verification ---
-void checkStartBoard() {
-    bool allCorrect = false;
-    while (!allCorrect && !restartRequest) {
-        board.resync(); // update board state
-        allCorrect = true;
-        String firstError = "";
-        
-        // Check Ranks 1 to 8, Files A to H
-        for (int rank = 0; rank < 8; rank++) {
-            for (int file = 0; file < 8; file++) {
-                // Ranks 1,2 (rank 0,1) and 7,8 (rank 6,7) must be occupied
-                bool expected = (rank <= 1 || rank >= 6); 
-                
-                if (board.isOccupied(file, rank) != expected) {
-                    allCorrect = false;
-                    char fChar = 'A' + file;
-                    char rChar = '1' + rank;
-                    
-                    if (firstError == "") {
-                        firstError = String(fChar) + String(rChar);
-                        firstError += expected ? " fehlt" : " zu viel";
-                    }
-                }
-            }
-        }
-        
-        if (!allCorrect) {
-            Serial.print(F("Board setup error: ")); Serial.println(firstError);
-            String msg = "Brett falsch!:Bitte fixen:>> " + firstError;
-            comms.send(msg, 'D');
-            
-            // Wait for user to change something on the board or press restart
-            String change = "";
-            while (change == "" && !restartRequest) {
-                change = board.getChange();
-                pollRestart();
-                delay(10);
-            }
-            delay(500); // Let pieces settle after change before re-checking
-        }
-    }
-    
-    if (allCorrect && !restartRequest) {
-        Serial.println(F("Board start positions OK."));
-        comms.send("Brett OK!:Starte Spiel...:", 'D');
-        delay(1000);
-    }
-}
-
 void setupGameSequence() {
     // Ensure button is not "stuck" from boot
     input.waitForRelease();
@@ -431,13 +382,12 @@ void setupGameSequence() {
 
     // 2. Send Timeout
     comms.send(String(moveTime), '-');
-    
-    // 3. Verify physical board setup before starting
-    checkStartBoard();
 }
 
 // Retrieves human move by polling board
 String getHumanMove() {
+    unsigned long lastPrintTime = millis();
+    
     while (!restartRequest) {
         String moveFrom = "";
         String moveTo = "";
@@ -497,6 +447,8 @@ String getHumanMove() {
         // Check validity
         if (moveFrom == moveTo) {
             Serial.println(F("Ignored move (placed back on same square). Please move again."));
+            // Clear the "From" display on the Pi
+            comms.send("[  ]", 'i');
         } else {
             return moveFrom + moveTo;
         }
@@ -505,15 +457,42 @@ String getHumanMove() {
 }
 
 // Blocks until the physical board state matches the target bits
-void waitForBoardRestoral(uint32_t target1, uint32_t target2) {
+void waitForBoardRestoral(uint32_t target1, uint32_t target2, String moveFrom, String moveTo) {
     Serial.println(F("BLOCKING: Waiting for physical board restoral..."));
+    comms.send("UNDO: " + moveTo + " -> " + moveFrom, 'D');
+
     long lastMsg = 0;
     while (!restartRequest) {
         // Continuous read to update bits
-        board.getChange();
+        String change = board.getChange();
+        
+        // Highlight logic during Undo
+        if (change.startsWith("-")) {
+            String sq = change.substring(1);
+            if (sq == moveTo) {
+                comms.send("UNDO: [" + moveTo + "] -> " + moveFrom, 'D'); // Highlight the square lifted from
+            }
+        } else if (change.startsWith("+")) {
+            String sq = change.substring(1);
+            if (sq == moveFrom) {
+                comms.send("UNDO: " + moveTo + " -> [" + moveFrom + "]", 'D'); // Highlight the square placed on
+            }
+        }
         
         if (board.getState1() == target1 && board.getState2() == target2) {
             Serial.println(F("Board state matches original state. Correction complete."));
+            // Briefly highlight the corrected square and clear screen back to waiting
+            comms.send("UNDO: " + moveTo + " -> [" + moveFrom + "]", 'D'); 
+            delay(500); 
+            comms.send("Korrektur OK:Warte auf:neuen Zug", 'D');
+            break;
+        }
+
+        // Override: Press DEL to accept the illegal board state
+        if (digitalRead(PIN_BTN_DEL) == LOW) {
+            delay(200);
+            Serial.println(F("User pressed DEL. Overriding restoral..."));
+            comms.send("Zug ueberschrieben!:Warte auf:neuen Zug", 'D');
             break;
         }
         
@@ -565,7 +544,6 @@ void loop() {
     handleSerial();
 
     static bool gameStarted = false;
-    static bool isFirstTurn = true;
 
     // Poll restart button
     pollRestart();
@@ -574,15 +552,41 @@ void loop() {
     if (restartRequest) {
         restartRequest = false;
         
-        // Ask for confirmation
-        Serial.println(F("Neues Spiel? 1=Ja, 2=Nein"));
-        comms.send("Neues Spiel?:OK = Ja:Zurueck = Nein", 'D');  // Display on Pi
+        // Ask for confirmation (Interactive Menu)
+        input.waitForRelease();
+        int choice = 1; // 1 = Ja, 2 = Nein
+        comms.send("Neues Spiel?:> Ja:  Nein", 'D');
         
-        // Use selectOption (same buttons as game setup)
+        bool menuActive = true;
+        bool confirmed = false;
+        
+        while (menuActive) {
+            bool changed = false;
+            
+            // Toggle selection with INPUT or DEL
+            if (digitalRead(PIN_BTN_INPUT) == LOW || digitalRead(PIN_BTN_DEL) == LOW) {
+                choice = (choice == 1) ? 2 : 1;
+                changed = true;
+                delay(200);
+            }
+            
+            if (changed) {
+                if (choice == 1) {
+                    comms.send("Neues Spiel?:> Ja:  Nein", 'D');
+                } else {
+                    comms.send("Neues Spiel?:  Ja:> Nein", 'D');
+                }
+            }
+            
+            if (digitalRead(PIN_BTN_OK) == LOW) {
+                confirmed = (choice == 1);
+                menuActive = false;
+                delay(300);
+            }
+            delay(50);
+        }
+        
         input.waitForRelease();
-        int choice = input.selectOption(1, 2, 0);  // 1=Ja, 2=Nein
-        input.waitForRelease();
-        bool confirmed = (choice == 1);
         
         if (confirmed) {
             Serial.println(F("Restarting game..."));
@@ -594,6 +598,8 @@ void loop() {
             robot.graveyardNextFree = 0;
         } else {
             Serial.println(F("Restart cancelled."));
+            comms.send("Spiel geht weiter:Warte auf:neuen Zug", 'D');
+            delay(1000); // Give user 1s to see the cancel message
         }
     }
 
@@ -638,8 +644,6 @@ void loop() {
             delay(10);
             pollRestart();
         }
-        Serial.println(F("\n>>> INIT BOARD STATE:"));
-        board.printState();
         isFirstTurn = false;
     }
 
@@ -658,7 +662,9 @@ void loop() {
 
     if (!legal) {
         Serial.println(F("Move discarded. Please return pieces, it was illegal."));
-        waitForBoardRestoral(before1, before2);
+        String mf = humanMove.substring(0, 2);
+        String mt = humanMove.substring(2, 4);
+        waitForBoardRestoral(before1, before2, mf, mt);
         return;
     }
 
