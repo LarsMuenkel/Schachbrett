@@ -318,6 +318,66 @@ if gameplayMode == 'stockfish':
         skill = skillFromArduino
         movetime = movetimeFromArduino 
         fmove = newgame()
+        
+        # --- BLACK PLAYER FIRST TURN FIX ---
+        # If the user chose Black, the PC (White) must calculate the very first move
+        # without waiting for `getboard()`.
+        if playerColor == 'b':
+            sendToScreen ('White Start', 'Thinking...', '', '20')
+            cmove = "position startpos"
+            put(cmove)
+            put("go movetime " + movetime)
+            
+            text = sget()
+            smove = text[9:13] # e.g. e2e4
+            hint = text[21:25]
+            
+            if maxchess.addTextMove(smove) != True:
+                stxt = "e" + str(maxchess.getReason()) + smove
+                maxchess.printBoard()
+                sendtoboard(stxt)
+            else:
+                fmove = smove
+                stx = smove + hint
+                maxchess.printBoard()
+                print("computer first move: " + smove)
+                
+                smove_pretty_from = smove[0:2].upper()
+                smove_pretty_to = smove[2:4].upper()
+                smove_full = smove_pretty_from + "->" + smove_pretty_to
+                
+                sendToScreen('Opponent:', smove_full, 'Execute Move', '18')
+                
+                smove_msg = "m" + smove
+                sendtoboard(smove_msg + "-" + hint)
+                
+                print("Waiting for physical execution of first move...")
+                while True:
+                    cfm = getboard()
+                    if cfm is None: continue
+                    
+                    if cfm.startswith('p'):
+                        content = cfm[1:] 
+                        action = content[0] 
+                        sq = content[1:]
+                        if action == 'l':
+                            display_str = "[" + sq + "] -> " + smove_pretty_to
+                            sendToScreen('Opponent:', display_str, 'Place Target', '18')
+                        elif action == 'p':
+                            display_str = smove_pretty_from + " -> [" + sq + "]"
+                            sendToScreen('Opponent:', display_str, 'Good!', '18')
+                    elif cfm.startswith('w'):
+                        content = cfm[1:]
+                        if content == 'fixed':
+                            sendToScreen('Opponent:', smove_full, 'Execute Move', '18')
+                        else:
+                            wrong_sq = content
+                            sendToScreen('WRONG PIECE!', wrong_sq + ' lifted', 'PUT IT BACK!', '16')
+                    elif cfm.startswith('x'):
+                        break
+                        
+                sendToScreen ('Your Go', '', '', '30')
+        # -----------------------------------
 
         while True:
             # Main Game Loop - Wait for Human Move

@@ -20,6 +20,7 @@ volatile bool restartRequest = false;
 bool useRobot = true; // Default to Robot
 bool pendingStart = false;
 bool isFirstTurn = true; // Added missing global flag
+bool isFirstTurnForBlack = false;
 
 // --- ISR ---
 void restartISR() {
@@ -293,6 +294,15 @@ void waitForPhysicalMove(String move) {
                          comms.send("fixed", 'w'); 
                          break;
                      }
+                     
+                     // Allow user to override the warning with the DEL button
+                     if (digitalRead(PIN_BTN_DEL) == LOW) {
+                         delay(200);
+                         Serial.println(F("Wrong piece warning overridden by user."));
+                         comms.send("fixed", 'w'); // Tell Pi we are "fixed" so it proceeds
+                         break;
+                     }
+                     
                      delay(10);
                      pollRestart();
                  }
@@ -335,9 +345,11 @@ void setupGameSequence() {
     if (colorChoice == 1) {
         Serial.println(F("heypiC:w"));
         Serial.println(F("Playing as WHITE"));
+        isFirstTurnForBlack = false;
     } else {
         Serial.println(F("heypiC:b"));
         Serial.println(F("Playing as BLACK"));
+        isFirstTurnForBlack = true;
     }
 
     // --- Step 1: Select Quadrant (Category) ---
@@ -618,57 +630,59 @@ void loop() {
         }
     }
 
-    // 2. Human Turn
-    // Ensure any previously pending sensor changes (like from a robot move) are swallowed
-    if (!isFirstTurn) {
-        delay(500); // Let magnets/sensors settle
-        board.resync(); // Snapshot current physical state
-        unsigned long silenceStart = millis();
-        // 1000ms silence for robot moves
-        while (millis() - silenceStart < 1000 && !restartRequest) {
-            if (board.getChange() != "") silenceStart = millis(); 
-            delay(10);
-            pollRestart();
+    // 2. Human Turn (Only if it's not the very first turn when playing as Black)
+    if (!isFirstTurnForBlack) {
+        // Ensure any previously pending sensor changes (like from a robot move) are swallowed
+        if (!isFirstTurn) {
+            delay(500); // Let magnets/sensors settle
+            board.resync(); // Snapshot current physical state
+            unsigned long silenceStart = millis();
+            // 1000ms silence for robot moves
+            while (millis() - silenceStart < 1000 && !restartRequest) {
+                if (board.getChange() != "") silenceStart = millis(); 
+                delay(10);
+                pollRestart();
+            }
+        } else {
+            // For the first turn, we still need a brief silence period!
+            delay(300); // Let board stop vibrating from OK button
+            board.resync();
+            unsigned long silenceStart = millis();
+            // 400ms is perfectly enough to guarantee the board is physically still
+            while (millis() - silenceStart < 400 && !restartRequest) {
+                if (board.getChange() != "") silenceStart = millis(); 
+                delay(10);
+                pollRestart();
+            }
+            isFirstTurn = false;
         }
+
+        uint32_t before1 = board.getState1();
+        uint32_t before2 = board.getState2();
+
+        String humanMove = getHumanMove();
+        if (restartRequest) return; 
+        
+        // We send move to Pi. Pi validates it.
+        comms.send(humanMove, 'M');
+
+        // 3. Check Legality (Pi validation)
+        bool legal = comms.checkPiForError();
+        if (restartRequest) return;
+
+        if (!legal) {
+            Serial.println(F("Move discarded. Please return pieces, it was illegal."));
+            String mf = humanMove.substring(0, 2);
+            String mt = humanMove.substring(2, 4);
+            waitForBoardRestoral(before1, before2, mf, mt);
+            return;
+        }
+
+        Serial.println(F("Move is legal"));
     } else {
-        // For the first turn, we still need a brief silence period!
-        // Pushing the OK button shakes the board. If we take the snapshot exactly
-        // right as the button is released, the shaking magnets cause corrupt readings.
-        // That's why the middle files (like E2) weren't working properly!
-        delay(300); // Let board stop vibrating from OK button
-        board.resync();
-        unsigned long silenceStart = millis();
-        // 400ms is perfectly enough to guarantee the board is physically still
-        while (millis() - silenceStart < 400 && !restartRequest) {
-            if (board.getChange() != "") silenceStart = millis(); 
-            delay(10);
-            pollRestart();
-        }
-        isFirstTurn = false;
+        isFirstTurnForBlack = false; // Reset flag so next loop allows human move
+        Serial.println(F("Playing as Black: Skipping human turn to let PC move first."));
     }
-
-    uint32_t before1 = board.getState1();
-    uint32_t before2 = board.getState2();
-
-    String humanMove = getHumanMove();
-    if (restartRequest) return; 
-    
-    // We send move to Pi. Pi validates it.
-    comms.send(humanMove, 'M');
-
-    // 3. Check Legality (Pi validation)
-    bool legal = comms.checkPiForError();
-    if (restartRequest) return;
-
-    if (!legal) {
-        Serial.println(F("Move discarded. Please return pieces, it was illegal."));
-        String mf = humanMove.substring(0, 2);
-        String mt = humanMove.substring(2, 4);
-        waitForBoardRestoral(before1, before2, mf, mt);
-        return;
-    }
-
-    Serial.println(F("Move is legal"));
 
     // 4. Pi Turn
     String piMoveFull = comms.receiveMove();
