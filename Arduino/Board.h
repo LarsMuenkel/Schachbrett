@@ -76,15 +76,22 @@ public:
         // 1. Fast exit if no change from last known state
         if (live1 == lastRead1 && live2 == lastRead2) return "";
 
-        // 2. We detected a change! Wait 100ms to allow physical bounce to settle
-        delay(100);
-        
-        // 3. Read again to get the STABILIZED state
-        uint32_t final1 = readChain(PIN_SHIFT_DATA_1);
-        uint32_t final2 = readChain(PIN_SHIFT_DATA_2);
+        // 2. We detected a change! Enter the "Voting" Phase.
+        // The hardware MUST hold this exact new state for 10 consecutive reads.
+        // If it flickers back to the old state even once during this time, it's just noise.
+        for (int i = 0; i < 10; i++) {
+            delay(5); // 10 * 5ms = 50ms of continuous validation
+            
+            uint32_t check1 = readChain(PIN_SHIFT_DATA_1);
+            uint32_t check2 = readChain(PIN_SHIFT_DATA_2);
+            
+            // If the signal flickers, abort! It's electrical noise, not a human hand.
+            if (check1 != live1 || check2 != live2) return ""; 
+        }
 
-        // If the stabilized state is identical to our last known state, it was just a bounce.
-        if (final1 == lastRead1 && final2 == lastRead2) return "";
+        // 3. We survived the 10-read gauntlet. This is a solid, confirmed human move.
+        uint32_t final1 = live1;
+        uint32_t final2 = live2;
 
         String changedSq = "";
 
