@@ -272,6 +272,13 @@ void waitForPhysicalMove(String move) {
     bool toDone = false;
 
     while (!restartRequest && (!fromDone || !toDone)) {
+        // Allow user to completely skip/override the physical execution requirement with DEL
+        if (digitalRead(PIN_BTN_DEL) == LOW) {
+            delay(200); // Entprellen der Taste
+            Serial.println(F("User manually bypassed PC Move execution."));
+            break; 
+        }
+
         String change = board.getChange();
         
         if (change.startsWith("-")) {
@@ -604,6 +611,11 @@ void loop() {
             Serial.println(F("Restarting game..."));
             robot.magnetOff();
             robot.park();
+            
+            // Force flush physical board state to discard any shaky reads during button push
+            delay(300);
+            board.resync();
+            
             comms.send("", 'n');  // Tell Pi: new game
             gameStarted = false;  // Reset so setupGameSequence runs again
             pendingStart = false;

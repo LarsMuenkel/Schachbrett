@@ -68,8 +68,7 @@ public:
     }
 
     // Check for changes and return the coordinate string of the CHANGED bit.
-    // Returns empty string if no change or multiple changes (logic follows original intention).
-    // Check for changes with Robust Stability Check
+    // Includes a robust debounce to prevent ghost inputs like bouncing H3 fields.
     String getChange() {
         uint32_t live1 = readChain(PIN_SHIFT_DATA_1);
         uint32_t live2 = readChain(PIN_SHIFT_DATA_2);
@@ -77,50 +76,51 @@ public:
         // 1. Fast exit if no change from last known state
         if (live1 == lastRead1 && live2 == lastRead2) return "";
 
-        // 2. Debounce: Wait 200ms to allow physical bounce to settle
-        // This isolates noise so one wobbly piece doesn't paralyze the whole board.
-        delay(200);
+        // 2. We detected a change! Wait 100ms to allow physical bounce to settle
+        delay(100);
         
+        // 3. Read again to get the STABILIZED state
         uint32_t final1 = readChain(PIN_SHIFT_DATA_1);
         uint32_t final2 = readChain(PIN_SHIFT_DATA_2);
+
+        // If the stabilized state is identical to our last known state, it was just a bounce.
+        if (final1 == lastRead1 && final2 == lastRead2) return "";
+
         String changedSq = "";
 
-        // 3. Process Chain 1
+        // 4. Process Chain 1 (Stable Change)
         if (final1 != lastRead1) {
             for(int i = 0; i < 32; i++) {
                 if ( ((final1 >> i) & 1) != ((lastRead1 >> i) & 1) ) {
-                    // Verify the bit was also in this new state at the start of debounce
-                    if ( ((live1 >> i) & 1) == ((final1 >> i) & 1) ) {
-                        changedSq = SQUARES_1[i];
-                        bool isPlace = ((final1 >> i) & 1); // 1 = Place, 0 = Lift
+                    changedSq = SQUARES_1[i];
+                    bool isPlace = ((final1 >> i) & 1); // 1 = Place, 0 = Lift
 
-                        if (isPlace) lastRead1 |= (1UL << i);
-                        else         lastRead1 &= ~(1UL << i);
-                        
-                        return (isPlace ? "+" : "-") + changedSq;
-                    }
+                    // Update our confirmed state
+                    if (isPlace) lastRead1 |= (1UL << i);
+                    else         lastRead1 &= ~(1UL << i);
+                    
+                    return (isPlace ? "+" : "-") + changedSq;
                 }
             }
         }
 
-        // 4. Process Chain 2
+        // 5. Process Chain 2 (Stable Change)
         if (final2 != lastRead2) {
             for(int i = 0; i < 32; i++) {
                 if ( ((final2 >> i) & 1) != ((lastRead2 >> i) & 1) ) {
-                    if ( ((live2 >> i) & 1) == ((final2 >> i) & 1) ) {
-                        changedSq = SQUARES_2[i];
-                        bool isPlace = ((final2 >> i) & 1);
+                    changedSq = SQUARES_2[i];
+                    bool isPlace = ((final2 >> i) & 1);
 
-                        if (isPlace) lastRead2 |= (1UL << i);
-                        else         lastRead2 &= ~(1UL << i);
-                        
-                        return (isPlace ? "+" : "-") + changedSq;
-                    }
+                    // Update our confirmed state
+                    if (isPlace) lastRead2 |= (1UL << i);
+                    else         lastRead2 &= ~(1UL << i);
+                    
+                    return (isPlace ? "+" : "-") + changedSq;
                 }
             }
         }
 
-        return ""; // Should not reach here if a valid diff exists
+        return ""; 
     }
     
     // Check if a specific square (File 0-7, Rank 0-7) is occupied

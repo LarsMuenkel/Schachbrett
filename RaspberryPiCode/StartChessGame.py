@@ -410,6 +410,8 @@ if gameplayMode == 'stockfish':
             elif code == 'n':
                 # Full restart - break to outer loop for new setup
                 sendToScreen('NEW', 'GAME', '', '30')
+                # CLEAR BUFFER: prevent ghost moves (e.g. "iH3" from earlier lifts) carrying over to new game
+                ser.reset_input_buffer()
                 break
             else :
                 # Ignore unknown or error
