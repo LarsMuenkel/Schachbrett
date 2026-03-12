@@ -1,7 +1,7 @@
 import sys, getopt
 from luma.core.interface.serial import i2c
 from luma.core.render import canvas
-from luma.oled.device import ssd1306
+from luma.oled.device import sh1106
 from PIL import ImageFont
 
 # Argumente einlesen
@@ -25,7 +25,7 @@ for opt, arg in opts:
 # Display initialisieren
 try:
     serial = i2c(port=1, address=0x3C)
-    device = ssd1306(serial)
+    device = sh1106(serial)
     
     # WICHTIG: Verhindern, dass das Display beim Beenden gelöscht wird!
     # Wir überschreiben die Aufräum-Funktion mit einer leeren Funktion.

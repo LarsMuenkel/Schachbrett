@@ -4,7 +4,7 @@ import time
 try:
     from luma.core.interface.serial import i2c
     from luma.core.render import canvas
-    from luma.oled.device import ssd1306
+    from luma.oled.device import sh1106
     from PIL import ImageFont
 except ImportError as e:
     print("Fehler beim Laden der luma Bibliotheken: ", e)
@@ -14,7 +14,7 @@ print("Bibliotheken geladen. Versuche Display auf I2C Port 1, Adresse 0x3C anzus
 
 try:
     serial = i2c(port=1, address=0x3C)
-    device = ssd1306(serial)
+    device = sh1106(serial)
     
     with canvas(device) as draw:
         draw.text((10, 20), "DISPLAY TEST", fill="white")
